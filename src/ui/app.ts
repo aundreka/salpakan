@@ -139,9 +139,57 @@ export class App {
     return `<button type="button" class="${compact ? 'chip' : 'link-btn'} sound-btn" aria-pressed="${on}" title="${on ? 'Turn sound off' : 'Turn sound on'}">${icon}<span>${on ? 'Sound on' : 'Sound off'}</span></button>`;
   }
 
+  /** Minimal corner gear: practice, palette swatches, and sound in one small menu. */
+  private settingsMarkup(withPractice: boolean, open = false): string {
+    const cur = currentTheme();
+    const dot = (t: Theme) => {
+      const a = t.vars['--navy'] ?? '#1F3A5F', b = t.vars['--crimson'] ?? '#B8352F', bg = t.vars['--board'] ?? '#E9E4D9';
+      return `<button type="button" class="sfab-pal ${t.id === cur ? 'active' : ''}" data-theme="${t.id}" title="${t.name}" aria-label="${t.name}" aria-pressed="${t.id === cur}"><span class="pal-swatch" style="--sa:${a};--sb:${b};--sbg:${bg}"><i class="a"></i><i class="b"></i></span></button>`;
+    };
+    return `
+      <div class="sfab" data-practice="${withPractice}">
+        <button type="button" class="sfab-btn" aria-label="Settings" aria-haspopup="true" aria-expanded="${open}">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+        <div class="sfab-menu" role="menu" ${open ? '' : 'hidden'}>
+          ${withPractice ? '<button type="button" class="sfab-item sfab-practice" role="menuitem">Practice against the bot</button>' : ''}
+          <div class="sfab-row"><span class="sfab-label">Palette</span><span class="sfab-dots">${THEMES.map(dot).join('')}</span></div>
+          <button type="button" class="sfab-row sfab-sound" role="menuitemcheckbox" aria-checked="${sfx.enabled}"><span class="sfab-label">Sound</span><span class="switch ${sfx.enabled ? 'on' : ''}" aria-hidden="true"><i></i></span></button>
+        </div>
+      </div>`;
+  }
+
+  private refreshFab(open: boolean): void {
+    this.root.querySelectorAll<HTMLElement>('.sfab').forEach((f) => { f.outerHTML = this.settingsMarkup(f.dataset.practice === 'true', open); });
+  }
+
   private bindPalette(): void {
     this.root.addEventListener('click', (e) => {
       const target = e.target as Element;
+      const fab = target.closest<HTMLElement>('.sfab');
+      if (fab) {
+        if (target.closest('.sfab-btn')) {
+          const menu = fab.querySelector<HTMLElement>('.sfab-menu')!;
+          menu.hidden = !menu.hidden;
+          fab.querySelector('.sfab-btn')!.setAttribute('aria-expanded', String(!menu.hidden));
+          sfx.play('click');
+        } else if (target.closest('.sfab-pal')) {
+          applyTheme(target.closest<HTMLElement>('.sfab-pal')!.dataset.theme!);
+          sfx.play('click');
+          this.refreshFab(true);
+        } else if (target.closest('.sfab-sound')) {
+          const on = sfx.toggle();
+          if (on) sfx.play('click');
+          this.refreshFab(true);
+        } else if (target.closest('.sfab-practice')) {
+          const n = this.root.querySelector<HTMLInputElement>('#name')?.value.trim() || this.savedName() || 'You';
+          try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
+          this.practice(n);
+        }
+        return;
+      }
+      this.root.querySelectorAll<HTMLElement>('.sfab-menu').forEach((m) => { m.hidden = true; });
+      this.root.querySelectorAll('.sfab-btn').forEach((b) => b.setAttribute('aria-expanded', 'false'));
       const soundBtn = target.closest<HTMLButtonElement>('.sound-btn');
       if (soundBtn) {
         const on = sfx.toggle();
@@ -192,6 +240,7 @@ export class App {
     const name = this.savedName();
     this.root.innerHTML = `
       ${this.bgMarkup()}
+      ${this.settingsMarkup(true)}
       <main class="home">
         <section class="hero">
           <div class="hero-copy">
@@ -205,11 +254,6 @@ export class App {
                   <input id="code" class="code-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5" placeholder="CODE" aria-label="Room code">
                   <button class="btn big" type="submit" ${online ? '' : 'disabled'}>Join</button>
                 </form>
-              </div>
-              <div class="cta-foot">
-                <button id="practice" class="link-btn" type="button">Practice against the bot</button>
-                ${this.paletteMarkup()}
-                ${this.soundMarkup()}
               </div>
               ${online ? '' : '<p class="warn small">Online play is not configured on this build.</p>'}
             </div>
@@ -241,12 +285,6 @@ export class App {
       const n = this.takeName(nameInput);
       if (n) void this.join(code, n);
     });
-    q<HTMLButtonElement>('#practice').addEventListener('click', () => {
-      const n = nameInput.value.trim() || 'You';
-      try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
-      this.practice(n);
-    });
-
     this.hero = new Hero(q<HTMLElement>('#hero-board'), q<HTMLElement>('#hero-caption'), q<HTMLElement>('#hero-stage'));
     if (!name) nameInput.focus();
   }
@@ -261,6 +299,7 @@ export class App {
     const name = this.savedName();
     this.root.innerHTML = `
       ${this.bgMarkup()}
+      ${this.settingsMarkup(false)}
       <main class="home invite-page">
         <section class="invite">
           ${this.brandMarkup()}
