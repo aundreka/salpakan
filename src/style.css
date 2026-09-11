@@ -525,14 +525,14 @@ body.dragging * { cursor: grabbing !important; }
   display: grid; place-items: center; cursor: pointer; box-shadow: var(--shadow); transition: color .15s, transform .25s, border-color .15s;
 }
 .sfab-btn:hover, .sfab-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--ink); transform: rotate(30deg); }
-.sfab-menu { background: var(--panel); border-radius: 12px; box-shadow: 0 2px 4px rgba(27,36,48,.08), 0 18px 40px rgba(27,36,48,.18); padding: 6px; display: grid; gap: 2px; min-width: 232px; animation: drawer .16s ease-out; }
+.sfab-menu { min-width: 272px; background: var(--panel); border-radius: 12px; box-shadow: 0 2px 4px rgba(27,36,48,.08), 0 18px 40px rgba(27,36,48,.18); padding: 6px; display: grid; gap: 2px; min-width: 232px; animation: drawer .16s ease-out; }
 .sfab-menu[hidden] { display: none; }
 .sfab-item, .sfab-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 14px; text-align: left; }
 .sfab-item { cursor: pointer; font-weight: 500; }
 .sfab-item:hover, .sfab-sound:hover { background: var(--panel-2); }
 .sfab-sound { cursor: pointer; }
 .sfab-label { color: var(--muted); font: 500 11px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
-.sfab-dots { display: flex; gap: 6px; }
+.sfab-dots { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .sfab-pal { width: 24px; height: 24px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; transition: transform .15s, border-color .15s; }
 .sfab-pal:hover { transform: scale(1.12); }
 .sfab-pal.active { border-color: var(--accent); }
