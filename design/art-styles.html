@@ -1,0 +1,285 @@
+<title>Salpakan Art Styles</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;700&display=swap">
+<style>
+  :root {
+    --bg: #EEF0F3; --ink: #151A21; --muted: #5C6673; --rule: #D3D8DF;
+    --panel: #FFFFFF; --acc: #1F6F5F; --acc-ink: #FFFFFF; --code-bg: #E3E7EC;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11151B; --ink: #E7EAEE; --muted: #98A3AF; --rule: #283039;
+      --panel: #181D24; --acc: #3BAF98; --acc-ink: #0B1410; --code-bg: #222932;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11151B; --ink: #E7EAEE; --muted: #98A3AF; --rule: #283039;
+    --panel: #181D24; --acc: #3BAF98; --acc-ink: #0B1410; --code-bg: #222932;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 16px/1.55 "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    padding-block: 40px 64px; padding-inline: 20px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 40px; }
+
+  .eyebrow {
+    font: 500 12px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
+  }
+  h1, h2 {
+    font-family: "Barlow Condensed", "Arial Narrow", Arial, sans-serif; font-weight: 700;
+    text-wrap: balance; margin: 0; line-height: 1;
+  }
+  h1 { font-size: clamp(40px, 6vw, 64px); letter-spacing: -.01em; }
+  h2 { font-size: 36px; letter-spacing: -.005em; }
+  .intro p { max-width: 62ch; margin: 16px 0 0; color: var(--ink); }
+  .intro p.sub { color: var(--muted); font-size: 15px; }
+
+  .style {
+    display: grid; grid-template-columns: minmax(260px, 320px) 1fr; gap: 28px;
+    padding-top: 32px; border-top: 1px solid var(--rule); align-items: start;
+  }
+  .style .text { display: grid; gap: 14px; }
+  .style .text p { margin: 0; max-width: 40ch; }
+  .tag {
+    display: inline-block; font: 500 11px/1 "IBM Plex Mono", monospace; letter-spacing: .1em;
+    text-transform: uppercase; background: var(--acc); color: var(--acc-ink);
+    padding: 6px 8px; border-radius: 3px; width: max-content;
+  }
+  dl.meta { margin: 6px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 14px; }
+  dl.meta dt { color: var(--muted); font: 500 11px/1.6 "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+  dl.meta dd { margin: 0; }
+
+  .stage { border-radius: 14px; padding: 20px; display: grid; gap: 18px; background: var(--board); }
+  .board { width: 100%; max-width: 500px; display: block; }
+  .lineup { display: grid; gap: 14px; }
+  .lineup .row { display: flex; flex-wrap: wrap; gap: 12px 10px; align-items: end; }
+  .lineup .rowlabel { flex: 0 0 100%; font: 500 10px/1.3 "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--cap); opacity: .85; }
+  .lineup figure { margin: 0; display: grid; justify-items: center; gap: 6px; width: 72px; }
+  .lineup figcaption { font: 500 10px/1.3 "IBM Plex Mono", monospace; letter-spacing: .04em; color: var(--cap); text-align: center; }
+
+  /* ---------- Piece system: one geometry, styled by tokens ---------- */
+  .piece { overflow: visible; }
+  .piece.team-a { --tile: var(--a-tile); --ins: var(--a-ins); --edge: var(--a-edge, transparent); --shadow: var(--a-shadow, transparent); }
+  .piece.team-b { --tile: var(--b-tile); --ins: var(--b-ins); --edge: var(--b-edge, transparent); --shadow: var(--b-shadow, transparent); }
+  .piece .tile { fill: var(--tile); }
+  .piece .sheen { fill: #fff; opacity: 0; }
+  .piece .edge { fill: none; stroke: var(--edge); stroke-width: 1.5; opacity: 0; }
+  .piece .ins { fill: var(--ins); }
+  .piece .ins-stroke { fill: none; stroke: var(--ins); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+  .piece .ins-stroke.thin { stroke-width: 4; }
+  .piece .lbl { fill: var(--ins); font: 700 11px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .06em; }
+  .piece .back { opacity: .45; }
+
+  .cell-sel { fill: none; stroke: var(--accent); stroke-width: 3; }
+  .dot { fill: var(--accent); opacity: .85; }
+  .cell-target { fill: var(--accent); fill-opacity: .18; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 7 5; }
+  .grid { stroke: var(--line); stroke-width: 1.5; }
+
+  /* 1. Flat Tactical */
+  .s-flat {
+    --board: #E9E4D9; --line: #CFC7B8; --cap: #5E5748; --accent: #1F8A7A;
+    --zone-a: rgba(31,58,95,.12); --zone-b: rgba(184,53,47,.12);
+    --a-tile: #1F3A5F; --a-ins: #F2CF6B; --a-shadow: #122540;
+    --b-tile: #B8352F; --b-ins: #FFF1DE; --b-shadow: #781E1B;
+  }
+  .s-flat .piece .tile { filter: drop-shadow(0 4px 0 var(--shadow)); }
+
+  /* 2. Soft Tabletop */
+  .s-soft {
+    --board: #2E5C4C; --line: rgba(255,255,255,.18); --cap: #D9E6DF; --accent: #F2B84B;
+    --zone-a: rgba(255,255,255,.06); --zone-b: rgba(0,0,0,.12);
+    --a-tile: #F3EBD9; --a-ins: #243B5A; --a-edge: rgba(255,255,255,.75); --a-shadow: rgba(0,0,0,.38);
+    --b-tile: #2B2F36; --b-ins: #E4C57A; --b-edge: rgba(255,255,255,.16); --b-shadow: rgba(0,0,0,.55);
+  }
+  .s-soft .piece .tile { filter: drop-shadow(0 3px 3px var(--shadow)); }
+  .s-soft .piece .sheen { opacity: .18; }
+  .s-soft .piece .edge { opacity: 1; }
+
+  /* 3. Neon Command */
+  .s-neon {
+    --board: #0B1220; --line: #1C2840; --cap: #8FA3BF; --accent: #E9F5FF;
+    --zone-a: rgba(59,227,245,.06); --zone-b: rgba(255,122,89,.06);
+    --a-tile: #0F1A2E; --a-ins: #3BE3F5; --a-edge: rgba(59,227,245,.5);
+    --b-tile: #1A1220; --b-ins: #FF7A59; --b-edge: rgba(255,122,89,.5);
+  }
+  .s-neon .piece .edge { opacity: 1; }
+  .s-neon .piece .ins { fill: none; stroke: var(--ins); stroke-width: 2.5; stroke-linejoin: round; }
+  .s-neon .piece .ins-stroke { stroke-width: 3; }
+  .s-neon .piece .ins-stroke.thin { stroke-width: 2.5; }
+  .s-neon .piece .glyphs { filter: drop-shadow(0 0 4px var(--ins)); }
+  .s-neon .piece .lbl { font-weight: 500; }
+
+  /* comparison */
+  .compare { padding-top: 32px; border-top: 1px solid var(--rule); display: grid; gap: 16px; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font: 500 11px/1.4 "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  code { font: 500 13px "IBM Plex Mono", monospace; background: var(--code-bg); padding: 2px 5px; border-radius: 3px; }
+  .compare p { margin: 0; max-width: 62ch; color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 820px) {
+    .style { grid-template-columns: 1fr; }
+    h2 { font-size: 32px; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="star" viewBox="-10.5 -10.5 21 21">
+      <polygon points="0,-10 2.47,-3.4 9.51,-3.09 3.99,1.3 5.88,8.09 0,4.2 -5.88,8.09 -3.99,1.3 -9.51,-3.09 -2.47,-3.4"/>
+    </symbol>
+    <symbol id="sun" viewBox="-10.5 -10.5 21 21">
+      <path fill-rule="evenodd" d="M0,-9 A9,9 0 1,1 0,9 A9,9 0 1,1 0,-9 Z M0,-5.2 L4.8,3.2 L-4.8,3.2 Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="intro">
+    <p class="eyebrow">Salpakan · art direction · proposal</p>
+    <h1>Three ways to dress the board</h1>
+    <p>One insignia set, drawn once as SVG symbols. Every style below is the same geometry with a different tile, palette and finish, switched by CSS tokens. Pick one and the art pass builds the full set of 15 ranks, both teams, the board, and the interface in that language.</p>
+    <p class="sub">Each stage shows a 5×3 corner of the 9×8 board mid-game (a Private is selected, with its legal moves and a challenge target), then the same seven ranks for one side, and how the other side's pieces look revealed and hidden.</p>
+  </header>
+
+  <section class="style s-flat" id="flat">
+    <div class="text">
+      <span class="tag">Recommended</span>
+      <h2>1 · Flat Tactical</h2>
+      <p>Saturated team tiles with filled insignia in brass and ivory, a hard offset shadow, and a light warm-grey board with a thin grid. Reads like a confident modern board-game app.</p>
+      <p>Highest legibility at phone sizes: filled shapes survive being 40 px tall, and the two team hues never depend on the board color for contrast.</p>
+      <dl class="meta">
+        <dt>Effort</dt><dd>Lowest. No gradients or filters beyond one shadow.</dd>
+        <dt>Mood</dt><dd>Friendly, decisive, daytime.</dd>
+        <dt>Teams</dt><dd>Navy vs crimson. Ivory vs charcoal also works if you prefer the classic set.</dd>
+        <dt>Risk</dt><dd>Generic if the interface chrome is not given the same attention as the pieces.</dd>
+      </dl>
+    </div>
+    <div class="stage" data-style="flat"></div>
+  </section>
+
+  <section class="style s-soft" id="soft">
+    <div class="text">
+      <h2>2 · Soft Tabletop</h2>
+      <p>Ivory and charcoal tokens with a top sheen, a hairline inner edge and a soft shadow, sitting on a deep-green felt. The closest to owning a good physical set.</p>
+      <p>The most premium of the three and the calmest to look at for a long game. The ivory side needs the dark felt behind it, so the interface stays dark green too.</p>
+      <dl class="meta">
+        <dt>Effort</dt><dd>Medium. Sheen and shadow per tile, felt texture for the board.</dd>
+        <dt>Mood</dt><dd>Club room, unhurried.</dd>
+        <dt>Teams</dt><dd>Ivory vs charcoal, in the tradition of the original set.</dd>
+        <dt>Risk</dt><dd>Navy insignia on ivory drop below comfortable contrast on very small screens.</dd>
+      </dl>
+    </div>
+    <div class="stage" data-style="soft"></div>
+  </section>
+
+  <section class="style s-neon" id="neon">
+    <div class="text">
+      <h2>3 · Neon Command</h2>
+      <p>Dark slate tiles with thin-line insignia in cyan against coral, each with a faint glow, on a grid that reads like a war-room table. The most dramatic and the most "video game" of the three.</p>
+      <p>Strong identity, and hidden enemy pieces feel genuinely unknown in the dark. The whole interface would live in this palette, so there is no light mode.</p>
+      <dl class="meta">
+        <dt>Effort</dt><dd>Medium. Outline insignia need tuning so 1-star and 5-star stay distinct when small.</dd>
+        <dt>Mood</dt><dd>Tactical, late night.</dd>
+        <dt>Teams</dt><dd>Cyan vs coral. Both hold on slate; neither is the "good" color.</dd>
+        <dt>Risk</dt><dd>Thin lines fade under 40 px; the glow can look dated if overdone.</dd>
+      </dl>
+    </div>
+    <div class="stage" data-style="neon"></div>
+  </section>
+
+  <section class="compare">
+    <h2>Side by side</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Style</th><th>Legibility on phone</th><th>Production effort</th><th>Interface implication</th><th>Best if you want</th></tr></thead>
+        <tbody>
+          <tr><td>Flat Tactical</td><td>Best</td><td>Lowest</td><td>Light interface, sand and navy, works in light and dark</td><td>Clean, fast, broadly appealing</td></tr>
+          <tr><td>Soft Tabletop</td><td>Good</td><td>Medium</td><td>Dark green interface throughout</td><td>Premium, physical, calm</td></tr>
+          <tr><td>Neon Command</td><td>Fair</td><td>Medium</td><td>Dark slate interface only</td><td>Drama, strong identity</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Whatever the choice, production is the same pipeline: the 15 insignia and tile faces become <code>src/assets/sprite.svg</code>, the palette and finish become <code>src/assets/theme.css</code>, and the board renders pieces with <code>&lt;use&gt;</code>. Changing your mind later costs a stylesheet, not a redraw.</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  const star = (x, y, s) => `<use href="#star" x="${x - s / 2}" y="${y - s / 2}" width="${s}" height="${s}" class="ins"/>`;
+  const sun  = (x, y, s) => `<use href="#sun" x="${x - s / 2}" y="${y - s / 2}" width="${s}" height="${s}" class="ins"/>`;
+  const bars = ys => ys.map(y => `<rect x="24" y="${y - 4.5}" width="52" height="9" rx="2" class="ins"/>`).join('');
+  const chev = ys => ys.map(y => `<polyline points="30,${y} 50,${y - 14} 70,${y}" class="ins-stroke"/>`).join('');
+
+  const INSIGNIA = {
+    G5: [[24, 38], [50, 38], [76, 38], [37, 62], [63, 62]].map(p => star(p[0], p[1], 21)).join(''),
+    G4: [[35, 38], [65, 38], [35, 64], [65, 64]].map(p => star(p[0], p[1], 24)).join(''),
+    G3: [[50, 36], [34, 64], [66, 64]].map(p => star(p[0], p[1], 26)).join(''),
+    G2: [[36, 50], [64, 50]].map(p => star(p[0], p[1], 28)).join(''),
+    G1: star(50, 50, 34),
+    COL: [[26, 50], [50, 50], [74, 50]].map(p => sun(p[0], p[1], 22)).join(''),
+    LTC: [[37, 50], [63, 50]].map(p => sun(p[0], p[1], 25)).join(''),
+    MAJ: sun(50, 50, 32),
+    CPT: bars([34, 50, 66]),
+    LT1: bars([42, 58]),
+    LT2: bars([50]),
+    SGT: chev([42, 56, 70]),
+    PVT: chev([57]),
+    SPY: `<path d="M16,50 Q31,35 46,50 Q31,65 16,50Z" class="ins-stroke thin"/><circle cx="31" cy="50" r="5" class="ins"/>
+          <path d="M54,50 Q69,35 84,50 Q69,65 54,50Z" class="ins-stroke thin"/><circle cx="69" cy="50" r="5" class="ins"/>`,
+    FLG: `<line x1="32" y1="22" x2="32" y2="80" class="ins-stroke thin"/><path d="M35,24 L74,35 L35,46Z" class="ins"/>`,
+    HID: `<g class="back"><circle cx="50" cy="56" r="17" class="ins-stroke thin"/><circle cx="50" cy="56" r="4" class="ins"/></g>`
+  };
+  const LABEL = { G5: '5★ GEN', G4: '4★ GEN', G3: '3★ GEN', G2: '2★ GEN', G1: '1★ GEN', COL: 'COL', LTC: 'LT COL', MAJ: 'MAJ',
+    CPT: 'CPT', LT1: '1ST LT', LT2: '2ND LT', SGT: 'SGT', PVT: 'PVT', SPY: 'SPY', FLG: 'FLAG', HID: '' };
+  const NAME = { G5: '5-Star General', COL: 'Colonel', CPT: 'Captain', SGT: 'Sergeant', PVT: 'Private', SPY: 'Spy', FLG: 'Flag', HID: 'Hidden' };
+
+  function piece(rank, team, o) {
+    o = o || {};
+    const pos = o.inner ? `x="${o.x}" y="${o.y}"` : '';
+    const w = o.w || 72, h = o.h || 86.4;
+    return `<svg ${pos} width="${w}" height="${h}" viewBox="0 0 100 120" class="piece team-${team}" overflow="visible" role="img" aria-label="${team === 'a' ? 'Team A' : 'Team B'} ${NAME[rank] || rank}">
+      <rect class="tile" x="4" y="4" width="92" height="112" rx="10"/>
+      <path class="sheen" d="M14,4 H86 A10,10 0 0 1 96,14 V52 H4 V14 A10,10 0 0 1 14,4Z"/>
+      <rect class="edge" x="7" y="7" width="86" height="106" rx="8"/>
+      <g class="glyphs">${INSIGNIA[rank]}</g>
+      <text class="lbl" x="50" y="108" text-anchor="middle">${LABEL[rank]}</text>
+    </svg>`;
+  }
+
+  function board() {
+    const C = 64, cols = 5, rows = 3, W = cols * C, H = rows * C;
+    let s = `<svg class="board" viewBox="-6 -6 ${W + 12} ${H + 12}" role="img" aria-label="Board excerpt">`;
+    s += `<rect x="-6" y="-6" width="${W + 12}" height="${H + 12}" rx="10" fill="var(--board)"/>`;
+    s += `<rect x="0" y="0" width="${W}" height="${C}" fill="var(--zone-b)"/>`;
+    s += `<rect x="0" y="${2 * C}" width="${W}" height="${C}" fill="var(--zone-a)"/>`;
+    for (let c = 0; c <= cols; c++) s += `<line class="grid" x1="${c * C}" y1="0" x2="${c * C}" y2="${H}"/>`;
+    for (let r = 0; r <= rows; r++) s += `<line class="grid" x1="0" y1="${r * C}" x2="${W}" y2="${r * C}"/>`;
+    // selection + legal moves for the Private at (2,1)
+    s += `<rect class="cell-sel" x="${2 * C + 2}" y="${C + 2}" width="${C - 4}" height="${C - 4}" rx="6"/>`;
+    s += `<circle class="dot" cx="${1 * C + C / 2}" cy="${C + C / 2}" r="7"/>`;
+    s += `<circle class="dot" cx="${3 * C + C / 2}" cy="${C + C / 2}" r="7"/>`;
+    s += `<circle class="dot" cx="${2 * C + C / 2}" cy="${2 * C + C / 2}" r="7"/>`;
+    s += `<rect class="cell-target" x="${2 * C + 2}" y="2" width="${C - 4}" height="${C - 4}" rx="6"/>`;
+    const put = (rank, team, c, r) => piece(rank, team, { inner: true, x: c * C + 9, y: r * C + 4.5, w: 46, h: 55.2 });
+    s += put('HID', 'b', 0, 0) + put('HID', 'b', 2, 0) + put('HID', 'b', 4, 0);
+    s += put('PVT', 'a', 2, 1);
+    s += put('FLG', 'a', 0, 2) + put('G5', 'a', 1, 2) + put('SGT', 'a', 3, 2);
+    return s + '</svg>';
+  }
+
+  function lineup() {
+    const fig = (rank, team) => `<figure>${piece(rank, team)}<figcaption>${NAME[rank]}</figcaption></figure>`;
+    const a = ['G5', 'COL', 'CPT', 'SGT', 'PVT', 'SPY', 'FLG'].map(r => fig(r, 'a')).join('');
+    const b = ['G5', 'SPY', 'HID'].map(r => fig(r, 'b')).join('');
+    return `<div class="lineup"><div class="row"><span class="rowlabel">Your pieces, always shown to you</span>${a}</div><div class="row"><span class="rowlabel">Opponent: revealed after a challenge, and hidden</span>${b}</div></div>`;
+  }
+
+  document.querySelectorAll('.stage').forEach(el => { el.innerHTML = board() + lineup(); });
+})();
+</script>

@@ -1,0 +1,27 @@
+{
+  "rules": {
+    "rooms": {
+      "$code": {
+        ".read": "auth != null && $code.matches(/^[A-HJ-NP-Z2-9]{5}$/)",
+        "meta": {
+          ".write": "auth != null && !data.exists() && newData.child('hostUid').val() === auth.uid",
+          ".validate": "newData.hasChildren(['hostUid', 'rules', 'createdAt', 'protocol'])"
+        },
+        "players": {
+          "A": {
+            ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && newData.child('uid').val() === auth.uid"
+          },
+          "B": {
+            ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && newData.child('uid').val() === auth.uid"
+          }
+        },
+        "msgs": {
+          ".write": "auth != null && (root.child('rooms/' + $code + '/players/A/uid').val() === auth.uid || root.child('rooms/' + $code + '/players/B/uid').val() === auth.uid)",
+          "$msg": {
+            ".validate": "!data.exists() && newData.child('uid').val() === auth.uid && newData.hasChildren(['uid', 't', 'type'])"
+          }
+        }
+      }
+    }
+  }
+}
