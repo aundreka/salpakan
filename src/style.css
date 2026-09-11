@@ -392,7 +392,8 @@ p { margin: 0; }
 
 /* ---------------- Lobby settings ---------------- */
 .lobby-panel { max-width: 520px; width: 100%; margin: 0 auto; }
-.lobby { justify-items: center; }
+.lobby { justify-items: stretch; }
+.lobby .topbar { width: 100%; border-radius: 12px; border: 0; box-shadow: var(--shadow); }
 .center-row { justify-content: center; }
 .lobby-settings { display: grid; gap: 12px; width: 100%; text-align: left; padding: 16px; border-radius: 12px; background: var(--panel-2); }
 .lobby-settings .eyebrow { margin: 0; }
@@ -554,10 +555,9 @@ body.dragging * { cursor: grabbing !important; }
 .seg-opt { border: 0; background: transparent; color: var(--muted); font: 600 13px var(--font-body); padding: 7px 12px; border-radius: 8px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
 .seg-opt:hover { color: var(--ink); }
 .seg-opt.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(27,36,48,.12); }
-.sfab.inline { position: static; }
 .sfab.inline .sfab-btn { width: 34px; height: 34px; box-shadow: none; background: var(--panel-2); border-color: transparent; }
 .sfab.inline .sfab-menu { position: absolute; right: 0; top: calc(100% + 6px); }
-.sfab.inline { position: relative; }
+.sfab.inline { position: relative; top: auto; right: auto; gap: 0; }
 @media (max-width: 520px) {
   .setting { flex-direction: column; align-items: stretch; }
   .seg { justify-content: stretch; }
