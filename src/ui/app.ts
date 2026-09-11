@@ -8,6 +8,7 @@ import { Session, localStorageRankStore, memoryRankStore } from '../net/session'
 import { attachBot } from '../net/bot';
 import { LOGO_MARK } from '../assets/sprite';
 import { BoardView, pieceSvg } from './board';
+import { Hero } from './hero';
 
 type Screen = 'home' | 'lobby' | 'setup' | 'play';
 
@@ -26,6 +27,7 @@ export class App {
   private session: Session | null = null;
   private detachBot: (() => void) | null = null;
   private board: BoardView | null = null;
+  private hero: Hero | null = null;
   private unsubscribe: (() => void) | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
 
@@ -62,53 +64,51 @@ export class App {
 
   private renderHome(prefillCode = ''): void {
     this.teardownSession();
+    this.hero?.destroy();
+    this.hero = null;
     this.screen = 'home';
     history.replaceState(null, '', location.pathname);
     const online = firebaseConfigured();
     const name = this.savedName();
     this.root.innerHTML = `
       <main class="home">
-        <header class="brand">
-          ${LOGO_MARK}
-          <div>
-            <h1>Salpakan</h1>
-            <p class="tagline">Game of the Generals for two, in the browser.</p>
-          </div>
-        </header>
+        <section class="hero">
+          <div class="hero-copy">
+            <a class="brand" href="${location.pathname}">${LOGO_MARK}<span class="brand-name">Salpakan</span></a>
+            <h1>Every piece<br>is a secret.</h1>
+            <p class="lead">Game of the Generals for two, in the browser. Share a five-letter code, hide your ranks, capture the flag.</p>
 
-        <section class="panel">
-          <label class="field">
-            <span>Your name</span>
-            <input id="name" type="text" maxlength="18" autocomplete="nickname" placeholder="e.g. Aundreka" value="${escapeHtml(name)}">
-          </label>
-
-          <div class="split">
-            <form id="create" class="card">
-              <h2>Create a room</h2>
-              <label class="field">
-                <span>Turn timer</span>
-                <select id="timer">${TIMER_OPTIONS.map((t) => `<option value="${t}" ${t === DEFAULT_RULES.timerSeconds ? 'selected' : ''}>${t ? `${t} seconds per move` : 'No clock'}</option>`).join('')}</select>
-              </label>
-              <label class="check">
-                <input id="instant" type="checkbox" checked>
-                <span>Flag wins the moment it reaches the far row</span>
-                <small>Off: tournament rule. It must have no enemy beside it, or survive one turn.</small>
-              </label>
-              <button class="btn primary" type="submit" ${online ? '' : 'disabled'}>Create room</button>
-              ${online ? '' : '<small class="warn">Online play is not configured on this build.</small>'}
-            </form>
-
-            <form id="join" class="card">
-              <h2>Join a room</h2>
-              <label class="field">
-                <span>Room code</span>
-                <input id="code" class="code-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5" placeholder="ABCDE" value="${escapeHtml(prefillCode)}">
-              </label>
-              <button class="btn" type="submit" ${online ? '' : 'disabled'}>Join</button>
-            </form>
+            <div class="cta">
+              <input id="name" class="name-input" type="text" maxlength="18" autocomplete="nickname" placeholder="Your name" aria-label="Your name" value="${escapeHtml(name)}">
+              <div class="cta-row">
+                <button class="btn primary big" id="create-btn" type="button" ${online ? '' : 'disabled'}>Create room</button>
+                <form id="join" class="join-inline">
+                  <input id="code" class="code-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5" placeholder="CODE" aria-label="Room code" value="${escapeHtml(prefillCode)}">
+                  <button class="btn big" type="submit" ${online ? '' : 'disabled'}>Join</button>
+                </form>
+              </div>
+              <div class="cta-foot">
+                <button id="practice" class="link-btn" type="button">Practice against the bot</button>
+                <button id="settings-toggle" class="link-btn" type="button" aria-expanded="false" aria-controls="settings">Room settings <span id="settings-summary" class="summary"></span></button>
+              </div>
+              <div id="settings" class="settings-drawer" hidden>
+                <label class="field">
+                  <span>Turn timer</span>
+                  <select id="timer">${TIMER_OPTIONS.map((t) => `<option value="${t}" ${t === DEFAULT_RULES.timerSeconds ? 'selected' : ''}>${t ? `${t} seconds per move` : 'No clock'}</option>`).join('')}</select>
+                </label>
+                <div class="check-row">
+                  <label class="check"><input id="instant" type="checkbox" checked><span>Flag wins the moment it reaches the far row</span></label>
+                  <span class="tip"><button type="button" class="tip-btn" aria-label="About the flag rule">i</button><span class="tip-body" role="tooltip">Off is the tournament rule: the flag must have no enemy beside it, or survive one enemy turn on the far row.</span></span>
+                </div>
+              </div>
+              ${online ? '' : '<p class="warn small">Online play is not configured on this build.</p>'}
+            </div>
           </div>
 
-          <button id="practice" class="btn ghost">Practice against the bot</button>
+          <div class="hero-stage" id="hero-stage">
+            <div class="stage-3d"><div id="hero-board"></div></div>
+            <p class="hero-caption" id="hero-caption"></p>
+          </div>
         </section>
 
         <details class="rules">
@@ -127,38 +127,60 @@ export class App {
       </main>
       <div id="toasts" class="toasts"></div>`;
 
-    const nameInput = this.root.querySelector<HTMLInputElement>('#name')!;
-    const codeInput = this.root.querySelector<HTMLInputElement>('#code')!;
+    const q = <T extends Element>(sel: string) => this.root.querySelector<T>(sel)!;
+    const nameInput = q<HTMLInputElement>('#name');
+    const codeInput = q<HTMLInputElement>('#code');
+    const timerSel = q<HTMLSelectElement>('#timer');
+    const instant = q<HTMLInputElement>('#instant');
+    const drawer = q<HTMLElement>('#settings');
+    const toggle = q<HTMLButtonElement>('#settings-toggle');
+    const summary = q<HTMLElement>('#settings-summary');
+
     codeInput.addEventListener('input', () => { codeInput.value = normalizeCode(codeInput.value); });
+    const updateSummary = () => {
+      const t = Number(timerSel.value);
+      summary.textContent = `· ${t ? `${t} s clock` : 'no clock'} · ${instant.checked ? 'instant flag' : 'tournament flag'}`;
+    };
+    updateSummary();
+    timerSel.addEventListener('change', updateSummary);
+    instant.addEventListener('change', updateSummary);
+    toggle.addEventListener('click', () => {
+      const open = drawer.hidden;
+      drawer.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+    const tip = q<HTMLElement>('.tip');
+    q<HTMLButtonElement>('.tip-btn').addEventListener('click', (e) => { e.preventDefault(); tip.classList.toggle('open'); });
+    document.addEventListener('click', (e) => { if (!tip.contains(e.target as Node)) tip.classList.remove('open'); });
 
     const takeName = (): string | null => {
       const n = nameInput.value.trim();
-      if (!n) { nameInput.focus(); this.toast('Enter a name first.'); return null; }
+      if (!n) { nameInput.focus(); nameInput.classList.add('shake'); setTimeout(() => nameInput.classList.remove('shake'), 400); this.toast('Enter a name first.'); return null; }
       try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
       return n;
     };
 
-    this.root.querySelector<HTMLFormElement>('#create')!.addEventListener('submit', (e) => {
-      e.preventDefault();
+    q<HTMLButtonElement>('#create-btn').addEventListener('click', () => {
       const n = takeName();
       if (!n) return;
-      const rules: Rules = {
-        timerSeconds: Number(this.root.querySelector<HTMLSelectElement>('#timer')!.value),
-        flagInstantWin: this.root.querySelector<HTMLInputElement>('#instant')!.checked,
-      };
+      const rules: Rules = { timerSeconds: Number(timerSel.value), flagInstantWin: instant.checked };
       void this.create(rules, n);
     });
-    this.root.querySelector<HTMLFormElement>('#join')!.addEventListener('submit', (e) => {
+    q<HTMLFormElement>('#join').addEventListener('submit', (e) => {
       e.preventDefault();
       const n = takeName();
       if (!n) return;
+      if (normalizeCode(codeInput.value).length !== 5) { codeInput.focus(); this.toast('Room codes are five letters.'); return; }
       void this.join(normalizeCode(codeInput.value), n);
     });
-    this.root.querySelector('#practice')!.addEventListener('click', () => {
+    q<HTMLButtonElement>('#practice').addEventListener('click', () => {
       const n = nameInput.value.trim() || 'You';
       try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
       this.practice(n);
     });
+
+    this.hero = new Hero(q<HTMLElement>('#hero-board'), q<HTMLElement>('#hero-caption'), q<HTMLElement>('#hero-stage'));
+
     if (prefillCode) codeInput.focus();
     else if (!name) nameInput.focus();
   }
@@ -201,6 +223,8 @@ export class App {
   // ------------------------------------------------------------- session
 
   private startSession(session: Session): void {
+    this.hero?.destroy();
+    this.hero = null;
     this.session = session;
     this.draft.clear();
     this.traySel = null;
