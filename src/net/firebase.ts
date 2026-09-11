@@ -61,7 +61,7 @@ export async function hostRoom(rules: Rules, name: string): Promise<Transport> {
         meta: { ...meta, createdAt: serverTimestamp() },
         'players/A': { uid, name, connected: true },
       });
-      return makeTransport(db, code, uid, 'A', rules);
+      return makeTransport(db, code, uid, uid, 'A', rules);
     } catch (e) {
       throw friendly(e);
     }
@@ -88,13 +88,13 @@ export async function joinRoom(codeInput: string, name: string): Promise<Transpo
     } else {
       throw new Error('This room already has two players.');
     }
-    return makeTransport(db, code, uid, team, room.meta.rules);
+    return makeTransport(db, code, uid, room.meta.hostUid, team, room.meta.rules);
   } catch (e) {
     throw friendly(e);
   }
 }
 
-function makeTransport(db: Database, code: string, uid: string, team: Team, rules: Rules): Transport {
+function makeTransport(db: Database, code: string, uid: string, hostUid: string, team: Team, rules: Rules): Transport {
   const msgsRef = ref(db, `rooms/${code}/msgs`);
   const meRef = ref(db, `rooms/${code}/players/${team}`);
   let offset = 0;
@@ -106,7 +106,7 @@ function makeTransport(db: Database, code: string, uid: string, team: Team, rule
   const cleanups: (() => void)[] = [offOffset];
 
   return {
-    code, uid, team, rules, isLocal: false,
+    code, uid, hostUid, team, rules, isLocal: false,
     send(msg) {
       // Defer so a message sent from inside a handler is delivered after the current one finishes.
       Promise.resolve().then(() => set(push(msgsRef), { uid, t: serverTimestamp(), ...msg })).catch((e) => {

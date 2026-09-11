@@ -2,6 +2,7 @@ import type { Rank } from '../engine/types';
 import { RANK_INFO, resolveChallenge } from '../engine/rules';
 import { fullRankList, shuffle } from '../engine/random';
 import { pieceInner } from './board';
+import { sfx } from '../audio';
 
 /**
  * The landing-page stage: a 6×4 slice of the front line you can poke at.
@@ -174,6 +175,7 @@ export class Hero {
 
   private async move(p: HeroPiece, c: number, r: number): Promise<void> {
     this.busy = true;
+    sfx.play('move');
     p.c = c; p.r = r;
     p.el.style.transform = `translate(${c * CELL}px, ${r * CELL}px)`;
     p.inner.classList.remove('lift');
@@ -193,12 +195,14 @@ export class Hero {
     const cx = def.c * CELL + CELL / 2, cy = def.r * CELL + CELL / 2;
     const burst = el('circle', { cx, cy, r: 56, class: 'burst' });
     this.fx.append(burst);
+    sfx.play('clash');
     def.inner.innerHTML = pieceInner(def.rank, true);
     def.inner.classList.add('reveal');
     await wait(this.reduced ? 0 : 420);
 
     const result = resolveChallenge(att.rank, def.rank);
     const a = RANK_INFO[att.rank].name, d = RANK_INFO[def.rank].name;
+    sfx.play(result === 'attacker' ? 'good' : result === 'defender' ? 'bad' : 'both');
     if (result === 'attacker') {
       def.alive = false; def.inner.classList.add('gone');
       this.setCaption(def.rank === 'FLG' ? `${a} captures the flag!` : `${a} beats ${d}. The square is yours.`);

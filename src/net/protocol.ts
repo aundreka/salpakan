@@ -21,6 +21,7 @@ export function isValidCode(code: string): boolean {
 }
 
 export type Msg =
+  | { type: 'rules'; rules: Rules }
   | { type: 'ready'; team: Team; cells: { id: string; c: number; r: number }[] }
   | { type: 'start'; first: Team; game: number }
   | { type: 'move'; team: Team; from: Pos; to: Pos; attackerRank?: Rank; declareFlag?: boolean }

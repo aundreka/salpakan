@@ -9,6 +9,7 @@ import type { LogMsg, Msg, Players } from './protocol';
 export interface Transport {
   readonly code: string;
   readonly uid: string;
+  readonly hostUid: string;
   readonly team: Team;
   readonly rules: Rules;
   readonly isLocal: boolean;

@@ -48,7 +48,8 @@ export class Session {
   players: Players = {};
   error: string | null = null;
   readonly me: Team;
-  readonly rules: Rules;
+  /** Starts as the room's creation rules; the host may change them until either side is ready. */
+  rules: Rules;
 
   private myRanks: Record<string, Rank> = {};
   private startSent = false;
@@ -111,6 +112,16 @@ export class Session {
     this.transport.send(msg);
   }
 
+  /** Host only, before anyone is ready. Applied when the message comes back from the log. */
+  setRules(rules: Rules): void {
+    if (!this.canEditRules) return;
+    this.transport.send({ type: 'rules', rules });
+  }
+
+  get canEditRules(): boolean {
+    return this.me === 'A' && this.state.phase === 'setup' && !this.ready.A && !this.ready.B;
+  }
+
   resign(): void {
     if (this.state.phase !== 'playing') return;
     this.transport.send({ type: 'resign', team: this.me });
@@ -155,6 +166,12 @@ export class Session {
     if ('team' in m && sender && m.team !== sender) return; // a seat may only speak for itself
     try {
       switch (m.type) {
+        case 'rules': {
+          if (lm.uid !== this.transport.hostUid || s.phase !== 'setup' || this.ready.A || this.ready.B) return;
+          this.rules = { flagInstantWin: !!m.rules.flagInstantWin, timerSeconds: Number(m.rules.timerSeconds) || 0 };
+          this.state = createGame(this.rules);
+          break;
+        }
         case 'ready': {
           if (s.phase !== 'setup' || this.ready[m.team]) return;
           const placements: Placement[] = m.cells.map((c) => ({

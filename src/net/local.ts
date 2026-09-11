@@ -16,7 +16,7 @@ export function createLocalPair(rules: Rules, names: { A: string; B: string }): 
   let seq = 0;
 
   const make = (team: Team): Transport => ({
-    code: 'LOCAL', uid: `local-${team}`, team, rules, isLocal: true,
+    code: 'LOCAL', uid: `local-${team}`, hostUid: 'local-A', team, rules, isLocal: true,
     send(msg: Msg) {
       const entry: LogMsg = { key: String(seq++).padStart(6, '0'), uid: `local-${team}`, t: Date.now(), msg };
       queueMicrotask(() => {

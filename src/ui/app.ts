@@ -1,5 +1,5 @@
 import type { Placement, Pos, Rank, Rules, Team } from '../engine/types';
-import { ALL_RANKS, COLS, PIECE_COUNTS, RANK_INFO, ROWS, other, posEq, posKey, setupRows, toNotation } from '../engine/rules';
+import { ALL_RANKS, COLS, OFFICER_ORDER, PIECE_COUNTS, RANK_INFO, ROWS, other, posEq, posKey, setupRows, toNotation } from '../engine/rules';
 import { fullRankList, makePieceIds, randomSetup } from '../engine/random';
 import { createLocalPair } from '../net/local';
 import { firebaseConfigured, hostRoom, joinRoom } from '../net/firebase';
@@ -7,13 +7,65 @@ import { DEFAULT_RULES, TIMER_OPTIONS, normalizeCode } from '../net/protocol';
 import { Session, localStorageRankStore, memoryRankStore } from '../net/session';
 import { attachBot } from '../net/bot';
 import { LOGO_MARK } from '../assets/sprite';
-import { BoardView, pieceSvg } from './board';
+import { BoardView, pieceInner, pieceSvg } from './board';
 import { Hero } from './hero';
+import { sfx } from '../audio';
 
 type Screen = 'home' | 'lobby' | 'setup' | 'play';
 
 const LS_NAME = 'salpakan:name';
 const LS_LAST_SETUP = 'salpakan:lastSetup';
+const LS_THEME = 'salpakan:theme';
+
+/**
+ * Color palettes. Each remaps the theme tokens; team A keeps the "navy" token names
+ * and team B the "crimson" ones so every component recolors without changes.
+ */
+interface Theme { id: string; name: string; dark?: boolean; vars: Record<string, string> }
+const THEMES: Theme[] = [
+  { id: 'classic', name: 'Navy & Crimson', vars: {} },
+  { id: 'ivory', name: 'Ivory & Charcoal', vars: {
+    '--navy': '#F3EBD9', '--navy-deep': '#C9BFA8', '--brass': '#243B5A',
+    '--crimson': '#2B2F36', '--crimson-deep': '#15181D', '--ivory': '#E4C57A',
+    '--board': '#DDE5DC', '--grid': '#BFCABF', '--zone-a': 'rgba(36,59,90,.08)', '--zone-b': 'rgba(43,47,54,.10)',
+    '--accent': '#1F8A7A', '--accent-deep': '#166B5F',
+  } },
+  { id: 'jade', name: 'Jade & Coral', vars: {
+    '--navy': '#1F7A6D', '--navy-deep': '#124D44', '--brass': '#F5E6B8',
+    '--crimson': '#E0654A', '--crimson-deep': '#963C29', '--ivory': '#FFF3EA',
+    '--board': '#EDE7DA', '--grid': '#D3CBB9', '--accent': '#D9A441', '--accent-deep': '#A87A24', '--accent-ink': '#1B2430',
+  } },
+  { id: 'forest', name: 'Forest & Ochre', vars: {
+    '--navy': '#2F5D3A', '--navy-deep': '#1B3A22', '--brass': '#F0D58C',
+    '--crimson': '#B7791F', '--crimson-deep': '#7A4E12', '--ivory': '#FFF4DC',
+    '--board': '#E6E3D6', '--grid': '#C9C6B4', '--accent': '#1F6F9E', '--accent-deep': '#164F72',
+  } },
+  { id: 'midnight', name: 'Midnight', dark: true, vars: {
+    '--bg': '#12161E', '--panel': '#1B2230', '--panel-2': '#232B3A', '--ink': '#E8ECF2', '--muted': '#97A1B1', '--rule': '#2E384A',
+    '--board': '#202838', '--grid': '#34405A', '--coord': '#6E7A90',
+    '--navy': '#1E5A8A', '--navy-deep': '#123B5C', '--brass': '#F2CF6B',
+    '--crimson': '#C2572B', '--crimson-deep': '#7E3617', '--ivory': '#FFF1DE',
+    '--zone-a': 'rgba(30,90,138,.18)', '--zone-b': 'rgba(194,87,43,.16)',
+    '--accent': '#3BE3F5', '--accent-deep': '#1FB4C4', '--accent-ink': '#0B1410',
+    '--shadow': '0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35)',
+  } },
+];
+const THEME_KEYS = Array.from(new Set(THEMES.flatMap((t) => Object.keys(t.vars))));
+
+function currentTheme(): string {
+  try { return localStorage.getItem(LS_THEME) ?? 'classic'; } catch { return 'classic'; }
+}
+
+function applyTheme(id: string): void {
+  const theme = THEMES.find((t) => t.id === id) ?? THEMES[0];
+  const root = document.documentElement;
+  for (const k of THEME_KEYS) root.style.removeProperty(k);
+  for (const [k, v] of Object.entries(theme.vars)) root.style.setProperty(k, v);
+  root.dataset.theme = theme.id;
+  root.style.colorScheme = theme.dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.vars['--navy'] ?? '#1F3A5F');
+  try { localStorage.setItem(LS_THEME, theme.id); } catch { /* ignore */ }
+}
 
 const END_TEXT: Record<string, (winner: string, loser: string) => string> = {
   flagCaptured: (w, l) => `${w} captured ${l}'s flag.`,
@@ -40,12 +92,15 @@ export class App {
   private lastScreen: Screen | null = null;
 
   constructor(private root: HTMLElement) {
+    applyTheme(currentTheme());
+    this.bindPalette();
+    sfx.preload();
     window.addEventListener('salpakan:error', (e) => this.toast((e as CustomEvent<string>).detail, true));
     window.addEventListener('resize', () => { if (this.board && this.session) this.renderBoard(); });
     const params = new URLSearchParams(location.search);
     const room = params.get('room');
-    this.renderHome(room ? normalizeCode(room) : '');
-    if (room && this.savedName()) void this.join(normalizeCode(room), this.savedName());
+    if (room) this.renderJoin(normalizeCode(room));
+    else this.renderHome();
     // Dev shortcut: ?practice opens a bot game, ?practice=auto also places pieces and readies.
     if (params.has('practice')) {
       this.practice(this.savedName() || 'You');
@@ -62,7 +117,72 @@ export class App {
     try { return localStorage.getItem(LS_NAME) ?? ''; } catch { return ''; }
   }
 
-  private renderHome(prefillCode = ''): void {
+  /** A palette chip with a popover of swatches. Works anywhere thanks to delegated events on the root. */
+  private paletteMarkup(compact = false): string {
+    const cur = currentTheme();
+    const swatch = (t: Theme) => {
+      const a = t.vars['--navy'] ?? '#1F3A5F', b = t.vars['--crimson'] ?? '#B8352F', bg = t.vars['--board'] ?? '#E9E4D9';
+      return `<span class="pal-swatch" style="--sa:${a};--sb:${b};--sbg:${bg}"><i class="a"></i><i class="b"></i></span>`;
+    };
+    return `
+      <div class="palette">
+        <button type="button" class="${compact ? 'chip' : 'link-btn'} palette-btn" aria-haspopup="true" aria-expanded="false">${swatch(THEMES.find((t) => t.id === cur) ?? THEMES[0])}<span>Palette</span></button>
+        <div class="palette-pop" hidden role="menu">
+          ${THEMES.map((t) => `<button type="button" class="pal-opt ${t.id === cur ? 'active' : ''}" data-theme="${t.id}" role="menuitemradio" aria-checked="${t.id === cur}">${swatch(t)}<span>${t.name}</span></button>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  private soundMarkup(compact = false): string {
+    const on = sfx.enabled;
+    const icon = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/>${on ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l4 6M21 9l-4 6"/>'}</svg>`;
+    return `<button type="button" class="${compact ? 'chip' : 'link-btn'} sound-btn" aria-pressed="${on}" title="${on ? 'Turn sound off' : 'Turn sound on'}">${icon}<span>${on ? 'Sound on' : 'Sound off'}</span></button>`;
+  }
+
+  private bindPalette(): void {
+    this.root.addEventListener('click', (e) => {
+      const target = e.target as Element;
+      const soundBtn = target.closest<HTMLButtonElement>('.sound-btn');
+      if (soundBtn) {
+        const on = sfx.toggle();
+        this.root.querySelectorAll<HTMLElement>('.sound-btn').forEach((b) => { b.outerHTML = this.soundMarkup(b.classList.contains('chip')); });
+        if (on) sfx.play('click');
+        return;
+      }
+      const opt = target.closest<HTMLButtonElement>('.pal-opt');
+      if (opt) {
+        applyTheme(opt.dataset.theme!);
+        this.root.querySelectorAll<HTMLElement>('.palette').forEach((p) => {
+          p.outerHTML = this.paletteMarkup(p.querySelector('.palette-btn')?.classList.contains('chip') ?? false);
+        });
+        this.toast(`${THEMES.find((t) => t.id === opt.dataset.theme)?.name ?? 'Palette'} applied.`);
+        return;
+      }
+      const btn = target.closest<HTMLButtonElement>('.palette-btn');
+      const pops = this.root.querySelectorAll<HTMLElement>('.palette-pop');
+      if (btn) {
+        const pop = btn.parentElement!.querySelector<HTMLElement>('.palette-pop')!;
+        const open = pop.hidden;
+        pops.forEach((p) => { p.hidden = true; });
+        pop.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+        return;
+      }
+      if (!target.closest('.palette')) pops.forEach((p) => { p.hidden = true; });
+    });
+  }
+
+  /** Decorative landing background: soft team-colored glows, a faint grid, and drifting ghost insignia. */
+  private bgMarkup(): string {
+    const glyph = (rank: string, cls: string) => `<svg class="bg-glyph ${cls}" viewBox="0 0 100 100" aria-hidden="true"><use href="#ins-${rank}"/></svg>`;
+    return `<div class="bg" aria-hidden="true">${glyph('G5', 'g1')}${glyph('SGT', 'g2')}${glyph('SPY', 'g3')}${glyph('COL', 'g4')}${glyph('FLG', 'g5')}</div>`;
+  }
+
+  private brandMarkup(): string {
+    return `<a class="brand" href="${location.pathname}">${LOGO_MARK}<span class="brand-name">Salpakan</span></a>`;
+  }
+
+  private renderHome(): void {
     this.teardownSession();
     this.hero?.destroy();
     this.hero = null;
@@ -71,35 +191,25 @@ export class App {
     const online = firebaseConfigured();
     const name = this.savedName();
     this.root.innerHTML = `
+      ${this.bgMarkup()}
       <main class="home">
         <section class="hero">
           <div class="hero-copy">
-            <a class="brand" href="${location.pathname}">${LOGO_MARK}<span class="brand-name">Salpakan</span></a>
+            ${this.brandMarkup()}
             <h1>Every piece<br>is a secret.</h1>
-            <p class="lead">Game of the Generals for two, in the browser. Share a five-letter code, hide your ranks, capture the flag.</p>
-
             <div class="cta">
               <input id="name" class="name-input" type="text" maxlength="18" autocomplete="nickname" placeholder="Your name" aria-label="Your name" value="${escapeHtml(name)}">
               <div class="cta-row">
                 <button class="btn primary big" id="create-btn" type="button" ${online ? '' : 'disabled'}>Create room</button>
                 <form id="join" class="join-inline">
-                  <input id="code" class="code-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5" placeholder="CODE" aria-label="Room code" value="${escapeHtml(prefillCode)}">
+                  <input id="code" class="code-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5" placeholder="CODE" aria-label="Room code">
                   <button class="btn big" type="submit" ${online ? '' : 'disabled'}>Join</button>
                 </form>
               </div>
               <div class="cta-foot">
                 <button id="practice" class="link-btn" type="button">Practice against the bot</button>
-                <button id="settings-toggle" class="link-btn" type="button" aria-expanded="false" aria-controls="settings">Room settings <span id="settings-summary" class="summary"></span></button>
-              </div>
-              <div id="settings" class="settings-drawer" hidden>
-                <label class="field">
-                  <span>Turn timer</span>
-                  <select id="timer">${TIMER_OPTIONS.map((t) => `<option value="${t}" ${t === DEFAULT_RULES.timerSeconds ? 'selected' : ''}>${t ? `${t} seconds per move` : 'No clock'}</option>`).join('')}</select>
-                </label>
-                <div class="check-row">
-                  <label class="check"><input id="instant" type="checkbox" checked><span>Flag wins the moment it reaches the far row</span></label>
-                  <span class="tip"><button type="button" class="tip-btn" aria-label="About the flag rule">i</button><span class="tip-body" role="tooltip">Off is the tournament rule: the flag must have no enemy beside it, or survive one enemy turn on the far row.</span></span>
-                </div>
+                ${this.paletteMarkup()}
+                ${this.soundMarkup()}
               </div>
               ${online ? '' : '<p class="warn small">Online play is not configured on this build.</p>'}
             </div>
@@ -111,67 +221,25 @@ export class App {
           </div>
         </section>
 
-        <details class="rules">
-          <summary>How to play</summary>
-          <div class="rules-body">
-            <p>Each side hides 21 pieces on its three back rows. Pieces move one square up, down, left or right. Moving onto an enemy piece is a <strong>challenge</strong>: the higher rank stays, the lower is removed, and equal ranks remove each other. Only the outcome is shown, never the ranks.</p>
-            <ul>
-              <li><strong>Generals</strong> (5 to 1 star) outrank <strong>Colonel</strong>, <strong>Lt. Colonel</strong>, <strong>Major</strong>, <strong>Captain</strong>, <strong>1st Lt.</strong>, <strong>2nd Lt.</strong>, <strong>Sergeant</strong>, then <strong>Private</strong>.</li>
-              <li>The <strong>Spy</strong> beats every officer from Sergeant up. The <strong>Private</strong> is the only piece that beats the Spy.</li>
-              <li>Any piece captures the <strong>Flag</strong>. A flag that attacks another flag wins.</li>
-              <li>Win by capturing the enemy flag, or by walking your own flag to the far row.</li>
-            </ul>
-            <div class="rank-strip">${ALL_RANKS.map((r) => `<div class="rank-chip">${pieceSvg('A', r, 40)}<span>${RANK_INFO[r].name}${PIECE_COUNTS[r] > 1 ? ` ×${PIECE_COUNTS[r]}` : ''}</span></div>`).join('')}</div>
-          </div>
-        </details>
+        ${this.rulesMarkup()}
       </main>
       <div id="toasts" class="toasts"></div>`;
 
     const q = <T extends Element>(sel: string) => this.root.querySelector<T>(sel)!;
     const nameInput = q<HTMLInputElement>('#name');
     const codeInput = q<HTMLInputElement>('#code');
-    const timerSel = q<HTMLSelectElement>('#timer');
-    const instant = q<HTMLInputElement>('#instant');
-    const drawer = q<HTMLElement>('#settings');
-    const toggle = q<HTMLButtonElement>('#settings-toggle');
-    const summary = q<HTMLElement>('#settings-summary');
-
     codeInput.addEventListener('input', () => { codeInput.value = normalizeCode(codeInput.value); });
-    const updateSummary = () => {
-      const t = Number(timerSel.value);
-      summary.textContent = `· ${t ? `${t} s clock` : 'no clock'} · ${instant.checked ? 'instant flag' : 'tournament flag'}`;
-    };
-    updateSummary();
-    timerSel.addEventListener('change', updateSummary);
-    instant.addEventListener('change', updateSummary);
-    toggle.addEventListener('click', () => {
-      const open = drawer.hidden;
-      drawer.hidden = !open;
-      toggle.setAttribute('aria-expanded', String(open));
-    });
-    const tip = q<HTMLElement>('.tip');
-    q<HTMLButtonElement>('.tip-btn').addEventListener('click', (e) => { e.preventDefault(); tip.classList.toggle('open'); });
-    document.addEventListener('click', (e) => { if (!tip.contains(e.target as Node)) tip.classList.remove('open'); });
-
-    const takeName = (): string | null => {
-      const n = nameInput.value.trim();
-      if (!n) { nameInput.focus(); nameInput.classList.add('shake'); setTimeout(() => nameInput.classList.remove('shake'), 400); this.toast('Enter a name first.'); return null; }
-      try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
-      return n;
-    };
 
     q<HTMLButtonElement>('#create-btn').addEventListener('click', () => {
-      const n = takeName();
-      if (!n) return;
-      const rules: Rules = { timerSeconds: Number(timerSel.value), flagInstantWin: instant.checked };
-      void this.create(rules, n);
+      const n = this.takeName(nameInput);
+      if (n) void this.create({ ...DEFAULT_RULES }, n);
     });
     q<HTMLFormElement>('#join').addEventListener('submit', (e) => {
       e.preventDefault();
-      const n = takeName();
-      if (!n) return;
-      if (normalizeCode(codeInput.value).length !== 5) { codeInput.focus(); this.toast('Room codes are five letters.'); return; }
-      void this.join(normalizeCode(codeInput.value), n);
+      const code = normalizeCode(codeInput.value);
+      if (code.length !== 5) { codeInput.focus(); this.toast('Room codes are five letters.'); return; }
+      const n = this.takeName(nameInput);
+      if (n) void this.join(code, n);
     });
     q<HTMLButtonElement>('#practice').addEventListener('click', () => {
       const n = nameInput.value.trim() || 'You';
@@ -180,14 +248,126 @@ export class App {
     });
 
     this.hero = new Hero(q<HTMLElement>('#hero-board'), q<HTMLElement>('#hero-caption'), q<HTMLElement>('#hero-stage'));
+    if (!name) nameInput.focus();
+  }
 
-    if (prefillCode) codeInput.focus();
-    else if (!name) nameInput.focus();
+  /** Landing for an invite link: the room is fixed, the visitor only has to give a name. */
+  private renderJoin(code: string): void {
+    this.teardownSession();
+    this.hero?.destroy();
+    this.hero = null;
+    this.screen = 'home';
+    const valid = code.length === 5;
+    const name = this.savedName();
+    this.root.innerHTML = `
+      ${this.bgMarkup()}
+      <main class="home invite-page">
+        <section class="invite">
+          ${this.brandMarkup()}
+          ${valid ? `
+            <p class="eyebrow">You are invited to room</p>
+            <p class="big-code">${code.split('').map((ch) => `<span>${ch}</span>`).join('')}</p>
+            <form id="invite-form" class="invite-form">
+              <label class="field"><span>Your name</span><input id="name" class="name-input" type="text" maxlength="18" autocomplete="nickname" placeholder="What should your opponent call you?" value="${escapeHtml(name)}"></label>
+              <button class="btn primary big" type="submit">Join the game</button>
+            </form>` : `
+            <p class="eyebrow">Invite link</p>
+            <h2>That link is missing a valid room code.</h2>
+            <p class="muted">Ask your opponent to copy the invite again.</p>`}
+          <a class="link-btn" href="${location.pathname}">Not this room? Start your own</a>
+        </section>
+      </main>
+      <div id="toasts" class="toasts"></div>`;
+    const form = this.root.querySelector<HTMLFormElement>('#invite-form');
+    const nameInput = this.root.querySelector<HTMLInputElement>('#name');
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const n = this.takeName(nameInput!);
+      if (n) void this.join(code, n);
+    });
+    nameInput?.focus();
+  }
+
+  private takeName(input: HTMLInputElement): string | null {
+    const n = input.value.trim();
+    if (!n) {
+      input.focus();
+      input.classList.add('shake');
+      setTimeout(() => input.classList.remove('shake'), 400);
+      this.toast('Enter a name first.');
+      return null;
+    }
+    try { localStorage.setItem(LS_NAME, n); } catch { /* ignore */ }
+    return n;
+  }
+
+  private rulesMarkup(): string {
+    const navy = (r: Rank, size = 44) => pieceSvg('A', r, size, false);
+    const red = (r: Rank | null, size = 44) => pieceSvg('B', r, size, false);
+    const ladder = OFFICER_ORDER.map((r, i) => `
+      <li class="rung" style="--i:${i}">
+        ${navy(r, 46)}
+        <span class="rung-name">${RANK_INFO[r].name}</span>
+      </li>`).join('<li class="rung-sep" aria-hidden="true"><svg viewBox="0 0 12 20"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></li>');
+
+    const moveIcon = `<svg viewBox="0 0 120 120" class="howto-ico" aria-hidden="true">
+      <g class="piece team-a" transform="translate(10,10)">${pieceInner('SGT', false)}</g>
+      <g class="arrows" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M60 4v-2M55 8l5-6 5 6"/><path d="M60 114l-5-6h10z" fill="var(--accent)" stroke="none"/><path d="M6 60l6-5v10z" fill="var(--accent)" stroke="none"/><path d="M114 60l-6-5v10z" fill="var(--accent)" stroke="none"/>
+      </g></svg>`;
+    const clashIcon = `<svg viewBox="0 0 170 120" class="howto-ico" aria-hidden="true">
+      <g class="piece team-b" transform="translate(70,12) scale(.95)">${pieceInner(null, false)}</g>
+      <g class="piece team-a" transform="translate(8,20) scale(.95)">${pieceInner('CPT', false)}</g>
+      <g fill="var(--brass)"><polygon points="103,16 108,32 124,30 111,41 118,56 103,47 88,56 95,41 82,30 98,32"/></g></svg>`;
+    const winIcon = `<svg viewBox="0 0 170 120" class="howto-ico" aria-hidden="true">
+      <rect x="4" y="6" width="162" height="44" rx="8" fill="color-mix(in srgb, var(--board), var(--accent) 30%)"/>
+      <g class="piece team-a" transform="translate(38,20) scale(.9)">${pieceInner('FLG', false)}</g>
+      <path d="M140 100V64M130 74l10-10 10 10" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    return `
+        <section class="howto" id="how-to-play">
+          <div class="howto-head">
+            <p class="eyebrow">How to play</p>
+            <h2>Outrank them, or make them guess.</h2>
+          </div>
+
+          <div class="howto-cards">
+            <article class="howto-card">${moveIcon}<h3>Move</h3><p>One square up, down, left or right. Every piece moves the same way, so a move never gives a rank away.</p></article>
+            <article class="howto-card">${clashIcon}<h3>Challenge</h3><p>Step onto an enemy piece. The higher rank stays, the lower one is removed. You learn only who survived, never the rank.</p></article>
+            <article class="howto-card">${winIcon}<h3>Win</h3><p>Capture their flag, or walk your own flag to the far row. Twenty-one pieces each, and only one of them matters in the end.</p></article>
+          </div>
+
+          <div class="ladder-block">
+            <div class="ladder-labels"><span>Strongest</span><span class="ladder-title">Chain of command</span><span>Weakest</span></div>
+            <ol class="ladder">${ladder}</ol>
+            <div class="ladder-bar" aria-hidden="true"></div>
+          </div>
+
+          <div class="exceptions">
+            <div class="exc">
+              <div class="exc-vis">${navy('SPY', 50)}<span class="beats">beats</span><span class="exc-group">${['G5', 'G3', 'COL', 'CPT', 'SGT'].map((r) => red(r as Rank, 30)).join('')}</span></div>
+              <p><strong>The Spy</strong> defeats every officer, Sergeant through 5-Star General.</p>
+            </div>
+            <div class="exc">
+              <div class="exc-vis">${navy('PVT', 50)}<span class="beats">beats</span>${red('SPY', 50)}</div>
+              <p><strong>Only a Private</strong> can catch a Spy. Six of them guard the line.</p>
+            </div>
+            <div class="exc">
+              <div class="exc-vis">${red(null, 50)}<span class="beats">captures</span>${navy('FLG', 50)}</div>
+              <p><strong>Any piece takes the Flag.</strong> A flag that attacks the other flag wins.</p>
+            </div>
+            <div class="exc">
+              <div class="exc-vis">${navy('COL', 50)}<span class="beats">meets</span>${red('COL', 50)}</div>
+              <p><strong>Equal ranks</strong> eliminate each other. Both leave the board.</p>
+            </div>
+          </div>
+        </section>`;
   }
 
   private async create(rules: Rules, name: string): Promise<void> {
     if (this.busy) return;
     this.busy = true;
+    sfx.play('cta');
     this.toast('Creating room…');
     try {
       const transport = await hostRoom(rules, name);
@@ -202,6 +382,7 @@ export class App {
   private async join(code: string, name: string): Promise<void> {
     if (this.busy) return;
     this.busy = true;
+    sfx.play('cta');
     this.toast(`Joining ${code}…`);
     try {
       const transport = await joinRoom(code, name);
@@ -214,6 +395,7 @@ export class App {
   }
 
   private practice(name: string): void {
+    sfx.play('cta');
     const pair = createLocalPair({ ...DEFAULT_RULES, timerSeconds: 0 }, { A: name, B: 'Bot' });
     const botSession = new Session(pair.B, memoryRankStore());
     this.detachBot = attachBot(botSession);
@@ -231,9 +413,50 @@ export class App {
     this.sel = null;
     this.lastScreen = null;
     if (!session.transport.isLocal) history.replaceState(null, '', `${location.pathname}?room=${session.transport.code}`);
-    this.unsubscribe = session.onChange(() => this.render());
+    this.prev = this.snapshot(session);
+    this.unsubscribe = session.onChange(() => { this.playSessionSounds(); this.render(); });
     this.ticker = setInterval(() => this.tick(), 250);
     this.render();
+  }
+
+  private prev: ReturnType<App['snapshot']> | null = null;
+  private lowPly = -1;
+
+  private snapshot(s: Session) {
+    return {
+      phase: s.state.phase, ply: s.state.ply, historyLen: s.state.history.length,
+      hasB: !!s.players.B, oppReady: s.ready[s.opp], oppRematch: s.rematch[s.opp], game: s.game,
+    };
+  }
+
+  /** Compare the session with its previous snapshot and play whatever just happened. */
+  private playSessionSounds(): void {
+    const s = this.session;
+    if (!s) return;
+    const now = this.snapshot(s);
+    const was = this.prev ?? now;
+    this.prev = now;
+    if (!s.synced) return;
+    if (!was.hasB && now.hasB && !s.transport.isLocal) sfx.play('joined');
+    if (!was.oppReady && now.oppReady && now.phase === 'setup') sfx.play('joined', { volume: 0.6 });
+    if (was.phase === 'setup' && now.phase !== 'setup') sfx.play('start');
+    if (now.historyLen > was.historyLen && now.game === was.game) {
+      const last = s.state.history[s.state.history.length - 1];
+      if (!last.result) sfx.play('move');
+      else {
+        sfx.play('clash', { delay: 190 });
+        const lost = s.state.captured.slice(-(last.result === 'both' ? 2 : 1));
+        const mineLost = lost.some((p) => p.team === s.me);
+        const theirsLost = lost.some((p) => p.team !== s.me);
+        sfx.play(mineLost && theirsLost ? 'both' : mineLost ? 'bad' : 'good', { delay: 520 });
+      }
+    }
+    if (was.phase !== 'ended' && now.phase === 'ended') sfx.play(s.state.winner === s.me ? 'win' : 'lose', { delay: 700 });
+    if (!was.oppRematch && now.oppRematch) sfx.play('joined');
+  }
+
+  private draftKey(): string {
+    return [...this.draft].map(([k, v]) => `${k}:${v}`).join('|');
   }
 
   private teardownSession(): void {
@@ -278,21 +501,28 @@ export class App {
     const s = this.session!;
     const link = `${location.origin}${location.pathname}?room=${s.transport.code}`;
     this.root.innerHTML = `
+      ${this.bgMarkup()}
       <main class="home lobby">
         ${this.topbar()}
-        <section class="panel center">
+        <section class="panel center lobby-panel">
           <p class="eyebrow">Room code</p>
           <p class="big-code" id="big-code">${s.transport.code.split('').map((ch) => `<span>${ch}</span>`).join('')}</p>
-          <p class="muted">Send this code or the link to your opponent. The game starts as soon as they join.</p>
-          <div class="row">
+          <div class="row center-row">
             <button class="btn primary" id="copy-link">Copy invite link</button>
             <button class="btn" id="copy-code">Copy code</button>
           </div>
           <p class="waiting"><span class="pulse"></span> Waiting for your opponent…</p>
-          <dl class="settings">
-            <dt>Turn timer</dt><dd>${s.rules.timerSeconds ? `${s.rules.timerSeconds} s per move` : 'No clock'}</dd>
-            <dt>Flag rule</dt><dd>${s.rules.flagInstantWin ? 'Wins on reaching the far row' : 'Tournament: must be safe or survive a turn'}</dd>
-          </dl>
+          <div class="lobby-settings">
+            <p class="eyebrow">Room settings</p>
+            <label class="field">
+              <span>Turn timer</span>
+              <select id="timer">${TIMER_OPTIONS.map((t) => `<option value="${t}" ${t === s.rules.timerSeconds ? 'selected' : ''}>${t ? `${t} seconds per move` : 'No clock'}</option>`).join('')}</select>
+            </label>
+            <div class="check-row">
+              <label class="check"><input id="instant" type="checkbox" ${s.rules.flagInstantWin ? 'checked' : ''}><span>Flag wins the moment it reaches the far row</span></label>
+              <span class="tip"><button type="button" class="tip-btn" aria-label="About the flag rule">i</button><span class="tip-body" role="tooltip">Off is the tournament rule: the flag must have no enemy beside it, or survive one enemy turn on the far row.</span></span>
+            </div>
+          </div>
           <button class="btn ghost" id="leave">Cancel and go home</button>
         </section>
       </main>
@@ -300,6 +530,13 @@ export class App {
     this.root.querySelector('#copy-link')!.addEventListener('click', () => this.copy(link, 'Invite link copied.'));
     this.root.querySelector('#copy-code')!.addEventListener('click', () => this.copy(s.transport.code, 'Code copied.'));
     this.root.querySelector('#leave')!.addEventListener('click', () => this.renderHome());
+    const timerSel = this.root.querySelector<HTMLSelectElement>('#timer')!;
+    const instant = this.root.querySelector<HTMLInputElement>('#instant')!;
+    const apply = () => s.setRules({ timerSeconds: Number(timerSel.value), flagInstantWin: instant.checked });
+    timerSel.addEventListener('change', apply);
+    instant.addEventListener('change', apply);
+    const tip = this.root.querySelector<HTMLElement>('.tip')!;
+    tip.querySelector('.tip-btn')!.addEventListener('click', (e) => { e.preventDefault(); tip.classList.toggle('open'); });
   }
 
   private topbar(): string {
@@ -312,6 +549,8 @@ export class App {
         <div class="topbar-right">
           ${s.transport.isLocal ? '<span class="chip">Practice</span>' : `<button class="chip code-chip" id="chip-code" title="Copy invite link">Room ${s.transport.code}</button>`}
           <span class="chip opp">${oppStatus}</span>
+          ${this.paletteMarkup(true)}
+          ${this.soundMarkup(true)}
         </div>
       </header>`;
   }
@@ -334,6 +573,116 @@ export class App {
       this.copy(`${location.origin}${location.pathname}?room=${s.transport.code}`, 'Invite link copied.');
     });
     this.board = new BoardView(this.root.querySelector<HTMLElement>('#board')!);
+    this.bindSetupDrag();
+  }
+
+  private rulesLine(): string {
+    const r = this.session!.rules;
+    return `${r.timerSeconds ? `${r.timerSeconds} s per move` : 'No clock'} · ${r.flagInstantWin ? 'flag wins on arrival' : 'tournament flag rule'}`;
+  }
+
+  // ------------------------------------------------------- drag and drop
+
+  /**
+   * Setup-phase dragging with pointer events: from the tray onto the board, between
+   * squares, and off the board to return a piece. A press that barely moves is left
+   * to the click handlers so tapping keeps working.
+   */
+  private bindSetupDrag(): void {
+    const side = this.root.querySelector<HTMLElement>('#side')!;
+    const boardHost = this.root.querySelector<HTMLElement>('#board')!;
+    let drag: { rank: Rank; from: Pos | null; ghost: HTMLElement; startX: number; startY: number; moved: boolean; hover: Element | null } | null = null;
+
+    const cellAt = (x: number, y: number): Pos | null => {
+      const hit = document.elementFromPoint(x, y)?.closest<SVGElement>('#board [data-c]');
+      return hit ? { c: Number(hit.dataset.c), r: Number(hit.dataset.r) } : null;
+    };
+    const rectAt = (pos: Pos | null): Element | null =>
+      pos ? boardHost.querySelector(`rect.cell[data-c="${pos.c}"][data-r="${pos.r}"]`) : null;
+
+    const begin = (e: PointerEvent, rank: Rank, from: Pos | null) => {
+      const s = this.session;
+      if (!s || this.screen !== 'setup' || s.ready[s.me] || e.button !== 0) return;
+      const cellPx = boardHost.clientWidth * 100 / 940;
+      const ghost = document.createElement('div');
+      ghost.className = 'drag-ghost';
+      ghost.innerHTML = pieceSvg(s.me, rank, Math.max(40, cellPx * 0.9), cellPx > 46);
+      ghost.style.width = ghost.style.height = `${Math.max(40, cellPx * 0.9)}px`;
+      drag = { rank, from, ghost, startX: e.clientX, startY: e.clientY, moved: false, hover: null };
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    };
+    const moveTo = (x: number, y: number) => {
+      if (!drag) return;
+      drag.ghost.style.transform = `translate(${x}px, ${y}px) translate(-50%, -60%)`;
+      const pos = cellAt(x, y);
+      const rect = rectAt(pos);
+      if (rect !== drag.hover) {
+        drag.hover?.classList.remove('drop-hover');
+        const s = this.session!;
+        if (rect && pos && setupRows(s.me).includes(pos.r)) rect.classList.add('drop-hover');
+        drag.hover = rect;
+      }
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 6) return;
+        drag.moved = true;
+        document.body.append(drag.ghost);
+        document.body.classList.add('dragging');
+        if (drag.from) this.board?.setHidden(drag.from);
+      }
+      moveTo(e.clientX, e.clientY);
+    };
+    const finish = (e: PointerEvent) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      d.hover?.classList.remove('drop-hover');
+      document.body.classList.remove('dragging');
+      this.board?.setHidden(null);
+      if (!d.moved) return; // a tap: click handlers take it from here
+      d.ghost.remove();
+      const s = this.session!;
+      const before = this.draftKey();
+      queueMicrotask(() => { if (this.draftKey() !== before) sfx.play('place'); });
+      const pos = cellAt(e.clientX, e.clientY);
+      const inZone = !!pos && setupRows(s.me).includes(pos.r);
+      if (d.from) {
+        const fromKey = posKey(d.from);
+        if (!pos) {
+          this.draft.delete(fromKey); // dropped off the board: back to the tray
+        } else if (inZone && !posEq(pos, d.from)) {
+          const here = this.draft.get(posKey(pos));
+          this.draft.delete(fromKey);
+          if (here) this.draft.set(fromKey, here);
+          this.draft.set(posKey(pos), d.rank);
+        }
+      } else if (inZone && pos) {
+        if (this.trayCounts()[d.rank] <= 0) return;
+        this.draft.set(posKey(pos), d.rank);
+      }
+      this.sel = null;
+      this.traySel = null;
+      this.render();
+    };
+
+    side.addEventListener('pointerdown', (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>('.tray-piece');
+      if (!btn || btn.disabled) return;
+      begin(e, btn.dataset.rank as Rank, null);
+    });
+    boardHost.addEventListener('pointerdown', (e) => {
+      const g = (e.target as Element).closest<SVGGElement>('g.piece.mine');
+      if (!g) return;
+      const from = { c: Number(g.dataset.c), r: Number(g.dataset.r) };
+      const rank = this.draft.get(posKey(from));
+      if (rank) begin(e, rank, from);
+    });
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   }
 
   private renderBoard(): void {
@@ -383,6 +732,8 @@ export class App {
   private onSetupCell(pos: Pos): void {
     const s = this.session!;
     if (s.ready[s.me]) return;
+    const before = this.draftKey();
+    queueMicrotask(() => { if (this.draftKey() !== before) sfx.play('place'); });
     if (!setupRows(s.me).includes(pos.r)) { this.sel = null; this.traySel = null; this.render(); return; }
     const key = posKey(pos);
     const here = this.draft.get(key);
@@ -427,8 +778,9 @@ export class App {
       <section class="side-block">
         <p class="eyebrow">Setup · ${placed} of 21 placed</p>
         <h2>Place your pieces</h2>
-        <p class="muted">Tap a piece below, then a square in your three rows. Tap a placed piece to move it, or tap it twice to return it.</p>
+        <p class="muted">Drag pieces onto your three rows, or tap a piece and then a square. Drag a piece off the board to return it.</p>
         <p class="opp-status">${oppReady ? `${escapeHtml(this.oppName())} is ready.` : `${escapeHtml(this.oppName())} is placing…`}</p>
+        <p class="rules-line">${this.rulesLine()}</p>
       </section>
       <section class="tray" id="tray">
         ${ALL_RANKS.map((r) => `
@@ -447,18 +799,20 @@ export class App {
       const btn = (e.target as Element).closest<HTMLButtonElement>('.tray-piece');
       if (!btn || btn.disabled) return;
       const rank = btn.dataset.rank as Rank;
+      sfx.play('click');
       this.traySel = this.traySel === rank ? null : rank;
       this.sel = null;
       this.render();
     });
     side.querySelector('#random')!.addEventListener('click', () => {
+      sfx.play('place');
       this.draft.clear();
       for (const p of randomSetup(s.me)) this.draft.set(posKey(p.pos), p.rank!);
       this.traySel = null; this.sel = null;
       this.render();
     });
     side.querySelector('#clear')!.addEventListener('click', () => { this.draft.clear(); this.traySel = null; this.sel = null; this.render(); });
-    side.querySelector('#ready')!.addEventListener('click', () => this.submitSetup());
+    side.querySelector('#ready')!.addEventListener('click', () => { sfx.play('cta'); this.submitSetup(); });
   }
 
   private submitSetup(): void {
@@ -523,6 +877,7 @@ export class App {
       }
     } else if (piece && piece.team === s.me) {
       this.sel = pos;
+      sfx.play('click');
     }
     this.renderBoard();
   }
@@ -639,6 +994,7 @@ export class App {
       const active = s.state.phase === 'playing' && s.state.turn === team && !s.pending;
       if (active && rem !== null) {
         const secs = Math.max(0, Math.ceil(rem / 1000));
+        if (team === s.me && secs === 10 && this.lowPly !== s.state.ply) { this.lowPly = s.state.ply; sfx.play('timerLow'); }
         clock.textContent = `${secs}s`;
         bar.style.width = `${Math.max(0, Math.min(100, (rem / (s.rules.timerSeconds * 1000)) * 100))}%`;
         clock.classList.toggle('low', secs <= 10);

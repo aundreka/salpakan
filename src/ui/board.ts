@@ -40,6 +40,7 @@ export class BoardView {
   private cellsLayer = el('g', { class: 'cells' });
   private hlLayer = el('g', { class: 'hl' });
   private piecesLayer = el('g', { class: 'pieces' });
+  private fxLayer = el('g', { class: 'fx' });
   private coordsLayer = el('g', { class: 'coords' });
   private pieceEls = new Map<string, SVGGElement>();
   private builtFor: Team | null = null;
@@ -52,13 +53,21 @@ export class BoardView {
       role: 'grid',
       'aria-label': 'Salpakan board',
     });
-    this.svg.append(this.cellsLayer, this.hlLayer, this.piecesLayer, this.coordsLayer);
+    this.svg.append(this.cellsLayer, this.hlLayer, this.piecesLayer, this.fxLayer, this.coordsLayer);
     host.replaceChildren(this.svg);
     this.svg.addEventListener('click', (e) => {
       const hit = (e.target as Element).closest<SVGElement>('[data-c]');
       if (!hit || !this.props) return;
       this.props.onCell({ c: Number(hit.dataset.c), r: Number(hit.dataset.r) });
     });
+  }
+
+  /** Dim one piece while it is being dragged as a ghost. */
+  setHidden(pos: Pos | null): void {
+    for (const g of this.pieceEls.values()) {
+      const match = !!pos && Number(g.dataset.c) === pos.c && Number(g.dataset.r) === pos.r;
+      g.classList.toggle('dragging-src', match);
+    }
   }
 
   render(props: BoardProps): void {
@@ -136,6 +145,7 @@ export class BoardView {
 
   private renderPieces(props: BoardProps): void {
     const { state, me } = props;
+    const clash = props.lastMove?.result ? props.lastMove : null;
     const seen = new Set<string>();
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
@@ -160,20 +170,84 @@ export class BoardView {
         if (g.dataset.key !== key) {
           g.dataset.key = key;
           g.setAttribute('class', `piece team-${piece.team.toLowerCase()} ${mine ? 'mine' : 'theirs'}`);
-          g.innerHTML = pieceInner(rank, props.labels);
+          g.innerHTML = `<g class="body">${pieceInner(rank, props.labels)}</g>`;
         }
         // Keep the moved piece on top so it slides over neighbours.
-        if (props.lastMove && posEq(props.lastMove.to, { c, r })) this.piecesLayer.append(g);
+        if (props.lastMove && posEq(props.lastMove.to, { c, r })) {
+          this.piecesLayer.append(g);
+          if (clash && g.dataset.hitPly !== String(state.ply)) {
+            g.dataset.hitPly = String(state.ply);
+            this.impact(g, clash.to, me);
+          }
+        }
       }
     }
     for (const [id, g] of this.pieceEls) {
       if (seen.has(id)) continue;
       this.pieceEls.delete(id);
-      g.classList.add('gone');
-      setTimeout(() => g.remove(), 320);
+      if (clash) this.breakPiece(g, clash, me);
+      else {
+        g.classList.add('gone');
+        setTimeout(() => g.remove(), 320);
+      }
     }
   }
+
+  /** The survivor recoils and a burst flashes on the contested square, timed to the attacker's arrival. */
+  private impact(g: SVGGElement, at: Pos, me: Team): void {
+    const { x, y } = toScreen(at, me);
+    setTimeout(() => {
+      const body = g.querySelector('.body');
+      body?.classList.remove('hit');
+      void (body as SVGGElement | null)?.getBBox?.();
+      body?.classList.add('hit');
+      const burst = el('circle', { cx: x + CELL / 2, cy: y + CELL / 2, r: 60, class: 'burst' });
+      const flash = el('rect', { x: x + 3, y: y + 3, width: CELL - 6, height: CELL - 6, rx: 8, class: 'clash-flash' });
+      this.fxLayer.append(flash, burst);
+      setTimeout(() => { burst.remove(); flash.remove(); body?.classList.remove('hit'); }, 650);
+    }, SLIDE_MS);
+  }
+
+  /** A losing piece slides into the fight if it attacked, then shatters into fragments. */
+  private breakPiece(g: SVGGElement, clash: MoveRecord, me: Team): void {
+    const wasAttacker = Number(g.dataset.c) === clash.from.c && Number(g.dataset.r) === clash.from.r;
+    if (wasAttacker) {
+      const { x, y } = toScreen(clash.to, me);
+      g.style.transform = `translate(${x}px, ${y}px)`;
+      this.piecesLayer.append(g);
+    }
+    g.style.pointerEvents = 'none';
+    setTimeout(() => {
+      const body = g.querySelector('.body');
+      const html = body?.innerHTML ?? '';
+      body?.remove();
+      SHARDS.forEach((shard, i) => {
+        const frag = el('g', { class: 'frag' });
+        frag.style.clipPath = `polygon(${shard.poly})`;
+        frag.style.setProperty('--dx', `${shard.dx}px`);
+        frag.style.setProperty('--dy', `${shard.dy}px`);
+        frag.style.setProperty('--rot', `${shard.rot}deg`);
+        frag.style.setProperty('--d', `${i * 18}ms`);
+        frag.innerHTML = html;
+        g.append(frag);
+      });
+      g.classList.add('shattering');
+      setTimeout(() => g.remove(), 950);
+    }, SLIDE_MS + 40);
+  }
 }
+
+const SLIDE_MS = 190;
+
+/** Six shards covering the tile, each thrown away from the centre with a little gravity. */
+const SHARDS = [
+  { poly: '0% 0%, 55% 0%, 40% 45%, 0% 35%', dx: -34, dy: -30, rot: -28 },
+  { poly: '55% 0%, 100% 0%, 100% 40%, 40% 45%', dx: 36, dy: -26, rot: 24 },
+  { poly: '0% 35%, 40% 45%, 30% 100%, 0% 100%', dx: -38, dy: 26, rot: -18 },
+  { poly: '40% 45%, 100% 40%, 70% 65%', dx: 30, dy: 4, rot: 30 },
+  { poly: '40% 45%, 70% 65%, 65% 100%, 30% 100%', dx: 6, dy: 42, rot: -12 },
+  { poly: '70% 65%, 100% 40%, 100% 100%, 65% 100%', dx: 40, dy: 34, rot: 20 },
+];
 
 export function pieceInner(rank: string | null, label: boolean): string {
   const tile = `<rect class="tile" x="8" y="6" width="84" height="86" rx="10"/>`;

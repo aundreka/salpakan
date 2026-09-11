@@ -251,5 +251,9 @@ codes, share links, reconnection by replay, resign, rematch, turn timer. Practic
 Needs the project owner (cannot be done from this machine):
 - Firebase console: enable **Anonymous** sign-in; paste `database.rules.json` into Realtime Database rules.
 
-Next polish candidates: WebAudio sounds, a share image, keyboard navigation on the board, drag-to-move,
+Added after v1 (2026-09-11): interactive landing hero, invite screen for shared links, host-editable room
+settings in the lobby (sent through the log as a `rules` message), drag-and-drop setup, illustrated How to play,
+combat animations (impact burst, recoil, shatter), five color palettes, and sound effects from `src/assets/sfx`.
+
+Next polish candidates: a share image, keyboard navigation on the board, drag-to-move during play,
 a "claim win" after a long disconnect when the clock is off, and commit-reveal anti-cheat (M6).
