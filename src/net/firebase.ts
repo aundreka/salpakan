@@ -55,9 +55,11 @@ export async function hostRoom(rules: Rules, name: string): Promise<Transport> {
       const existing = await get(ref(db, `rooms/${code}/meta`));
       if (existing.exists()) continue;
       const meta: RoomMeta = { hostUid: uid, rules, createdAt: Date.now(), protocol: PROTOCOL_VERSION };
-      await set(roomRef, {
+      // Multi-path update: each path is checked against its own rule. A single set() at the
+      // room root would need a write rule at rooms/$code, which the rules deliberately omit.
+      await update(roomRef, {
         meta: { ...meta, createdAt: serverTimestamp() },
-        players: { A: { uid, name, connected: true } },
+        'players/A': { uid, name, connected: true },
       });
       return makeTransport(db, code, uid, 'A', rules);
     } catch (e) {
