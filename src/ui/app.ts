@@ -140,14 +140,14 @@ export class App {
   }
 
   /** Minimal corner gear: practice, palette swatches, and sound in one small menu. */
-  private settingsMarkup(withPractice: boolean, open = false): string {
+  private settingsMarkup(withPractice: boolean, open = false, inline = false): string {
     const cur = currentTheme();
     const dot = (t: Theme) => {
       const a = t.vars['--navy'] ?? '#1F3A5F', b = t.vars['--crimson'] ?? '#B8352F', bg = t.vars['--board'] ?? '#E9E4D9';
       return `<button type="button" class="sfab-pal ${t.id === cur ? 'active' : ''}" data-theme="${t.id}" title="${t.name}" aria-label="${t.name}" aria-pressed="${t.id === cur}"><span class="pal-swatch" style="--sa:${a};--sb:${b};--sbg:${bg}"><i class="a"></i><i class="b"></i></span></button>`;
     };
     return `
-      <div class="sfab" data-practice="${withPractice}">
+      <div class="sfab ${inline ? 'inline' : ''}" data-practice="${withPractice}" data-inline="${inline}">
         <button type="button" class="sfab-btn" aria-label="Settings" aria-haspopup="true" aria-expanded="${open}">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
         </button>
@@ -160,7 +160,7 @@ export class App {
   }
 
   private refreshFab(open: boolean): void {
-    this.root.querySelectorAll<HTMLElement>('.sfab').forEach((f) => { f.outerHTML = this.settingsMarkup(f.dataset.practice === 'true', open); });
+    this.root.querySelectorAll<HTMLElement>('.sfab').forEach((f) => { f.outerHTML = this.settingsMarkup(f.dataset.practice === 'true', open, f.dataset.inline === 'true'); });
   }
 
   private bindPalette(): void {
@@ -551,17 +551,7 @@ export class App {
             <button class="btn" id="copy-code">Copy code</button>
           </div>
           <p class="waiting"><span class="pulse"></span> Waiting for your opponent…</p>
-          <div class="lobby-settings">
-            <p class="eyebrow">Room settings</p>
-            <label class="field">
-              <span>Turn timer</span>
-              <select id="timer">${TIMER_OPTIONS.map((t) => `<option value="${t}" ${t === s.rules.timerSeconds ? 'selected' : ''}>${t ? `${t} seconds per move` : 'No clock'}</option>`).join('')}</select>
-            </label>
-            <div class="check-row">
-              <label class="check"><input id="instant" type="checkbox" ${s.rules.flagInstantWin ? 'checked' : ''}><span>Flag wins the moment it reaches the far row</span></label>
-              <span class="tip"><button type="button" class="tip-btn" aria-label="About the flag rule">i</button><span class="tip-body" role="tooltip">Off is the tournament rule: the flag must have no enemy beside it, or survive one enemy turn on the far row.</span></span>
-            </div>
-          </div>
+          <div class="lobby-settings" id="lobby-settings">${this.lobbySettingsMarkup()}</div>
           <button class="btn ghost" id="leave">Cancel and go home</button>
         </section>
       </main>
@@ -569,13 +559,34 @@ export class App {
     this.root.querySelector('#copy-link')!.addEventListener('click', () => this.copy(link, 'Invite link copied.'));
     this.root.querySelector('#copy-code')!.addEventListener('click', () => this.copy(s.transport.code, 'Code copied.'));
     this.root.querySelector('#leave')!.addEventListener('click', () => this.renderHome());
-    const timerSel = this.root.querySelector<HTMLSelectElement>('#timer')!;
-    const instant = this.root.querySelector<HTMLInputElement>('#instant')!;
-    const apply = () => s.setRules({ timerSeconds: Number(timerSel.value), flagInstantWin: instant.checked });
-    timerSel.addEventListener('change', apply);
-    instant.addEventListener('change', apply);
-    const tip = this.root.querySelector<HTMLElement>('.tip')!;
-    tip.querySelector('.tip-btn')!.addEventListener('click', (e) => { e.preventDefault(); tip.classList.toggle('open'); });
+    const box = this.root.querySelector<HTMLElement>('#lobby-settings')!;
+    box.addEventListener('click', (e) => {
+      const opt = (e.target as Element).closest<HTMLButtonElement>('.seg-opt');
+      if (!opt) return;
+      const key = opt.closest<HTMLElement>('.seg')!.dataset.key;
+      const next: Rules = { ...s.rules };
+      if (key === 'timer') next.timerSeconds = Number(opt.dataset.value);
+      else next.flagInstantWin = opt.dataset.value === 'instant';
+      sfx.play('click');
+      s.rules = next; // optimistic; the log echo re-applies the same values
+      s.setRules(next);
+      box.innerHTML = this.lobbySettingsMarkup();
+    });
+  }
+
+  private lobbySettingsMarkup(): string {
+    const r = this.session!.rules;
+    const seg = (key: string, opts: { value: string; label: string; active: boolean }[]) =>
+      `<div class="seg" role="radiogroup" data-key="${key}">${opts.map((o) => `<button type="button" class="seg-opt ${o.active ? 'active' : ''}" data-value="${o.value}" role="radio" aria-checked="${o.active}">${o.label}</button>`).join('')}</div>`;
+    return `
+      <div class="setting">
+        <div class="setting-text"><span class="setting-name">Turn timer</span><span class="setting-hint">${r.timerSeconds ? `${r.timerSeconds} seconds per move` : 'No clock'}</span></div>
+        ${seg('timer', TIMER_OPTIONS.map((t) => ({ value: String(t), label: t ? `${t}s` : 'Off', active: t === r.timerSeconds })))}
+      </div>
+      <div class="setting">
+        <div class="setting-text"><span class="setting-name">Flag rule</span><span class="setting-hint">${r.flagInstantWin ? 'Wins the moment it reaches the far row' : 'Must be unthreatened, or survive one turn'}</span></div>
+        ${seg('flag', [{ value: 'instant', label: 'Instant', active: r.flagInstantWin }, { value: 'tournament', label: 'Tournament', active: !r.flagInstantWin }])}
+      </div>`;
   }
 
   private topbar(): string {
@@ -588,8 +599,7 @@ export class App {
         <div class="topbar-right">
           ${s.transport.isLocal ? '<span class="chip">Practice</span>' : `<button class="chip code-chip" id="chip-code" title="Copy invite link">Room ${s.transport.code}</button>`}
           <span class="chip opp">${oppStatus}</span>
-          ${this.paletteMarkup(true)}
-          ${this.soundMarkup(true)}
+          ${this.settingsMarkup(false, false, true)}
         </div>
       </header>`;
   }

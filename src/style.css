@@ -542,3 +542,24 @@ body.dragging * { cursor: grabbing !important; }
 .switch.on { background: var(--accent); }
 .switch.on i { transform: translateX(14px); }
 @media (max-width: 480px) { .sfab { top: 10px; right: 10px; } }
+
+/* ---------------- Lobby settings (segmented) + inline gear ---------------- */
+.lobby-settings { padding: 6px 4px; background: transparent; gap: 0; }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 12px; border-top: 1px solid var(--rule); }
+.setting:first-child { border-top: 0; }
+.setting-text { display: grid; gap: 3px; min-width: 0; }
+.setting-name { font-weight: 600; font-size: 15px; }
+.setting-hint { color: var(--muted); font-size: 12.5px; }
+.seg { display: inline-flex; background: var(--panel-2); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
+.seg-opt { border: 0; background: transparent; color: var(--muted); font: 600 13px var(--font-body); padding: 7px 12px; border-radius: 8px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+.seg-opt:hover { color: var(--ink); }
+.seg-opt.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(27,36,48,.12); }
+.sfab.inline { position: static; }
+.sfab.inline .sfab-btn { width: 34px; height: 34px; box-shadow: none; background: var(--panel-2); border-color: transparent; }
+.sfab.inline .sfab-menu { position: absolute; right: 0; top: calc(100% + 6px); }
+.sfab.inline { position: relative; }
+@media (max-width: 520px) {
+  .setting { flex-direction: column; align-items: stretch; }
+  .seg { justify-content: stretch; }
+  .seg-opt { flex: 1; }
+}
