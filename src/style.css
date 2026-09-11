@@ -133,7 +133,7 @@ p { margin: 0; }
 .presence.off { background: var(--danger); }
 
 .game-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; padding: 20px; max-width: 1280px; width: 100%; margin: 0 auto; align-items: start;
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; padding: 20px; max-width: 1280px; width: 100%; margin: 0 auto; align-items: start; align-content: start;
 }
 .board-wrap { display: grid; place-items: center; min-width: 0; }
 #board { width: 100%; min-width: 0; max-width: min(100%, calc((100vh - 120px) * 1.08)); }
